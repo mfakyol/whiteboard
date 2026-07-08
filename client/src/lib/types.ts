@@ -8,22 +8,27 @@ export type Tool =
   | 'text'
   | 'sticky'
 
+export type ShapeType = Exclude<Tool, 'select' | 'hand'> | 'image'
+
 export interface Shape {
   id: string
-  type: Exclude<Tool, 'select' | 'hand'>
+  type: ShapeType
   stroke: string
   strokeWidth: number
   // pen / arrow
   points?: number[]
-  // rect / ellipse / sticky / text
+  // rect / ellipse / sticky / text / image
   x?: number
   y?: number
   width?: number
   height?: number
+  rotation?: number
   // text / sticky
   text?: string
   fill?: string
   fontSize?: number
+  // image
+  src?: string
 }
 
 export interface User {

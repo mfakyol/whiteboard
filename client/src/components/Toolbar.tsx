@@ -23,13 +23,20 @@ interface Props {
   strokeWidth: number
   setStrokeWidth: (n: number) => void
   onClear: () => void
+  onUndo: () => void
+  onRedo: () => void
+  canUndo: boolean
+  canRedo: boolean
+  onPickImage: () => void
   users: User[]
   boardId: string
+  onJumpToUser: (id: string) => void
 }
 
 export default function Toolbar({
   tool, setTool, color, setColor, strokeWidth, setStrokeWidth,
-  onClear, users, boardId,
+  onClear, onUndo, onRedo, canUndo, canRedo, onPickImage,
+  users, boardId, onJumpToUser,
 }: Props) {
   const [copied, setCopied] = useState(false)
 
@@ -57,6 +64,13 @@ export default function Toolbar({
             {t.icon}
           </button>
         ))}
+        <button title="Add image" onClick={onPickImage} className="w-9 h-9 rounded-md text-base flex items-center justify-center hover:bg-slate-700">🖼️</button>
+      </div>
+
+      {/* Undo / redo */}
+      <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
+        <button title="Undo (Ctrl+Z)" onClick={onUndo} disabled={!canUndo} className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-slate-700 disabled:opacity-30">↶</button>
+        <button title="Redo (Ctrl+Shift+Z)" onClick={onRedo} disabled={!canRedo} className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-slate-700 disabled:opacity-30">↷</button>
       </div>
 
       {/* Colors */}
@@ -76,35 +90,19 @@ export default function Toolbar({
 
       {/* Stroke width */}
       <label className="flex items-center gap-2 text-xs text-slate-400">
-        <input
-          type="range"
-          min={1}
-          max={20}
-          value={strokeWidth}
-          onChange={(e) => setStrokeWidth(Number(e.target.value))}
-          className="w-24 accent-indigo-500"
-        />
+        <input type="range" min={1} max={20} value={strokeWidth} onChange={(e) => setStrokeWidth(Number(e.target.value))} className="w-24 accent-indigo-500" />
         <span className="w-6 text-right">{strokeWidth}</span>
       </label>
 
       <div className="flex-1" />
 
-      <PresenceBar users={users} />
+      <PresenceBar users={users} onJumpToUser={onJumpToUser} />
 
       <div className="flex items-center gap-2">
-        <button
-          onClick={copyLink}
-          title={`Board: ${boardId}`}
-          className="rounded-lg bg-slate-800 hover:bg-slate-700 px-3 py-1.5 text-sm"
-        >
+        <button onClick={copyLink} title={`Board: ${boardId}`} className="rounded-lg bg-slate-800 hover:bg-slate-700 px-3 py-1.5 text-sm">
           {copied ? '✓ Copied' : '🔗 Share'}
         </button>
-        <button
-          onClick={onClear}
-          className="rounded-lg bg-rose-600/80 hover:bg-rose-600 px-3 py-1.5 text-sm"
-        >
-          Clear
-        </button>
+        <button onClick={onClear} className="rounded-lg bg-rose-600/80 hover:bg-rose-600 px-3 py-1.5 text-sm">Clear</button>
       </div>
     </div>
   )
