@@ -1,0 +1,37 @@
+# Production stack — behind the host's nginx (which terminates TLS).
+#
+#   1. cp .env.example .env   &&   fill in the values (incl. MONGO_URI)
+#   2. docker network create shared      # once on the host, if not already
+#   3. docker compose -f docker-compose.prod.yml up -d --build
+#
+# The app is published on 127.0.0.1:8083 only. The host nginx reverse-proxies
+# the domain to that port (see deploy/nginx-host.conf.example).
+
+services:
+  server:
+    build: ./server
+    environment:
+      - PORT=5000
+      - NODE_ENV=production
+      # Shared MongoDB — full URI (with this project's DB user) lives in .env.
+      - MONGO_URI=${MONGO_URI:?set MONGO_URI in .env}
+      # CORS / Socket.io allowed origin (the public HTTPS origin).
+      - CLIENT_URL=https://${DOMAIN:?set DOMAIN in .env}
+    networks:
+      - default
+      - shared
+    expose:
+      - "5000"
+    restart: unless-stopped
+
+  client:
+    build: ./client
+    depends_on:
+      - server
+    ports:
+      - "127.0.0.1:8083:80"
+    restart: unless-stopped
+
+networks:
+  shared:
+    external: true
