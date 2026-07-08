@@ -6,4 +6,5 @@ export const env = {
   mongoUri: process.env.MONGO_URI ?? 'mongodb://127.0.0.1:27017/whiteboard',
   // Comma-separated list of allowed origins, or "*" for any.
   clientUrl: process.env.CLIENT_URL ?? 'http://localhost:5173',
+  jwtSecret: process.env.JWT_SECRET ?? 'dev-insecure-jwt-secret',
 }

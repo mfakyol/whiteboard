@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import type Konva from 'konva'
 import Canvas from '../components/Canvas'
 import Toolbar from '../components/Toolbar'
 import { getSocket } from '../lib/socket'
 import { getUser } from '../lib/user'
+import { getAccount } from '../lib/auth'
+import { getBoard, renameBoard } from '../lib/api'
 import type { Shape, Tool, User, Cursor } from '../lib/types'
 
 const TOP = 53
@@ -45,8 +47,29 @@ function fileToShapeImage(file: File): Promise<{ src: string; width: number; hei
 
 export default function BoardPage() {
   const { id: boardId = '' } = useParams()
-  const user = useMemo(() => getUser(), [])
+  const [searchParams] = useSearchParams()
+  const readOnly = searchParams.get('view') === '1'
+  const account = useMemo(() => getAccount(), [])
+  const user = useMemo(() => {
+    const u = getUser()
+    return account ? { ...u, name: account.name } : u
+  }, [account])
   const socket = useMemo(() => getSocket(), [])
+
+  const [boardName, setBoardName] = useState('Untitled board')
+  const [ownerId, setOwnerId] = useState<string | null>(null)
+  const isOwner = !!account && ownerId === account.id
+  useEffect(() => {
+    getBoard(boardId).then((m) => {
+      if (m) { setBoardName(m.name); setOwnerId(m.ownerId) }
+    })
+  }, [boardId])
+  const doRename = async () => {
+    const n = window.prompt('Rename board:', boardName)
+    if (!n) return
+    setBoardName(n)
+    await renameBoard(boardId, n)
+  }
   const stageRef = useRef<Konva.Stage | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -307,6 +330,8 @@ export default function BoardPage() {
         onBringToFront={bringToFront} onSendToBack={sendToBack}
         onDuplicate={duplicateSelection} onDelete={() => removeShapes(selectedIds)}
         users={users} boardId={boardId} onJumpToUser={jumpToUser}
+        boardName={boardName} canRename={isOwner && !readOnly} onRename={doRename}
+        readOnly={readOnly}
       />
 
       <input ref={fileInputRef} type="file" accept="image/*" hidden
@@ -327,6 +352,7 @@ export default function BoardPage() {
           onStartText={startTextCreate} onEditText={startTextEdit}
           onCursorMove={onCursorMove} stageRef={stageRef}
           scale={scale} pos={pos} setScale={setScale} setPos={setPos}
+          readOnly={readOnly}
         />
 
         {editing && editorScreen && (

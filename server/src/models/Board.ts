@@ -9,15 +9,16 @@ export interface Shape {
   [key: string]: unknown
 }
 
-// Schema is left untyped (Mixed shapes) and the document type is inferred.
 const boardSchema = new Schema(
   {
     _id: { type: String, required: true },
+    name: { type: String, default: 'Untitled board' },
+    // Owner's user id (absent for anonymous/guest boards).
+    ownerId: { type: String, default: null, index: true },
     shapes: { type: [Schema.Types.Mixed], default: [] },
   },
   { timestamps: true },
 )
 
 export type BoardDoc = InferSchemaType<typeof boardSchema>
-
 export const Board = model('Board', boardSchema)

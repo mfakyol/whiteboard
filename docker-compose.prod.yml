@@ -15,6 +15,7 @@ services:
       - NODE_ENV=production
       # Shared MongoDB — full URI (with this project's DB user) lives in .env.
       - MONGO_URI=${MONGO_URI:?set MONGO_URI in .env}
+      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env}
       # CORS / Socket.io allowed origin (the public HTTPS origin).
       - CLIENT_URL=https://${DOMAIN:?set DOMAIN in .env}
     networks:

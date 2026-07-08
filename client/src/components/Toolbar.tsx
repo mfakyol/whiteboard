@@ -36,25 +36,51 @@ interface Props {
   users: User[]
   boardId: string
   onJumpToUser: (id: string) => void
+  boardName: string
+  canRename: boolean
+  onRename: () => void
+  readOnly: boolean
 }
 
 export default function Toolbar({
   tool, setTool, color, setColor, strokeWidth, setStrokeWidth,
   onClear, onUndo, onRedo, canUndo, canRedo, onPickImage,
   hasSelection, onBringToFront, onSendToBack, onDuplicate, onDelete,
-  users, boardId, onJumpToUser,
+  users, boardId, onJumpToUser, boardName, canRename, onRename, readOnly,
 }: Props) {
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'' | 'edit' | 'view'>('')
 
-  function copyLink() {
-    navigator.clipboard.writeText(window.location.href)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+  function copy(kind: 'edit' | 'view') {
+    const base = window.location.origin + window.location.pathname
+    navigator.clipboard.writeText(kind === 'view' ? `${base}?view=1` : base)
+    setCopied(kind)
+    setTimeout(() => setCopied(''), 1500)
+  }
+
+  if (readOnly) {
+    return (
+      <div className="flex items-center gap-3 px-4 py-2 bg-slate-900 border-b border-slate-800 text-slate-100">
+        <div className="font-bold text-indigo-400">🎨 Collabo</div>
+        <span className="font-medium truncate max-w-[200px]">{boardName}</span>
+        <span className="text-xs bg-slate-700 rounded px-2 py-0.5">Read-only</span>
+        <div className="flex-1" />
+        <PresenceBar users={users} onJumpToUser={onJumpToUser} />
+        <a href={window.location.pathname} className="rounded-lg bg-slate-800 hover:bg-slate-700 px-3 py-1.5 text-sm">Open editable</a>
+      </div>
+    )
   }
 
   return (
     <div className="flex items-center gap-3 px-4 py-2 bg-slate-900 border-b border-slate-800 text-slate-100">
-      <div className="font-bold text-indigo-400 hidden sm:block">🎨 Collabo</div>
+      <div className="font-bold text-indigo-400 hidden sm:block">🎨</div>
+      <button
+        onClick={() => canRename && onRename()}
+        disabled={!canRename}
+        title={canRename ? 'Rename board' : boardName}
+        className="text-sm font-medium text-slate-200 hover:text-white disabled:cursor-default max-w-[150px] truncate"
+      >
+        {boardName}{canRename && ' ✎'}
+      </button>
 
       {/* Tools */}
       <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
@@ -115,8 +141,11 @@ export default function Toolbar({
       <PresenceBar users={users} onJumpToUser={onJumpToUser} />
 
       <div className="flex items-center gap-2">
-        <button onClick={copyLink} title={`Board: ${boardId}`} className="rounded-lg bg-slate-800 hover:bg-slate-700 px-3 py-1.5 text-sm">
-          {copied ? '✓ Copied' : '🔗 Share'}
+        <button onClick={() => copy('edit')} title={`Board: ${boardId}`} className="rounded-lg bg-slate-800 hover:bg-slate-700 px-3 py-1.5 text-sm">
+          {copied === 'edit' ? '✓ Copied' : '🔗 Share'}
+        </button>
+        <button onClick={() => copy('view')} title="Copy read-only link" className="rounded-lg bg-slate-800 hover:bg-slate-700 px-3 py-1.5 text-sm">
+          {copied === 'view' ? '✓ Copied' : '👁 View'}
         </button>
         <button onClick={onClear} className="rounded-lg bg-rose-600/80 hover:bg-rose-600 px-3 py-1.5 text-sm">Clear</button>
       </div>

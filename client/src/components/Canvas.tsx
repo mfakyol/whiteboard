@@ -53,12 +53,13 @@ interface Props {
   pos: { x: number; y: number }
   setScale: (s: number) => void
   setPos: (p: { x: number; y: number }) => void
+  readOnly?: boolean
 }
 
 export default function Canvas({
   tool, color, strokeWidth, shapes, cursors, users, selectedIds,
   setSelectedIds, addShape, commitBatch, onStartText, onEditText,
-  onCursorMove, stageRef, scale, pos, setScale, setPos,
+  onCursorMove, stageRef, scale, pos, setScale, setPos, readOnly = false,
 }: Props) {
   const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight - TOP_OFFSET })
   const [draft, setDraft] = useState<Shape | null>(null)
@@ -117,7 +118,7 @@ export default function Canvas({
   }
 
   function handleMouseDown(e: Konva.KonvaEventObject<MouseEvent>) {
-    if (tool === 'hand') return
+    if (readOnly || tool === 'hand') return
     if (tool === 'select') {
       const onEmpty = e.target === e.target.getStage()
       if (onEmpty) {
@@ -190,7 +191,7 @@ export default function Canvas({
     setDraft(null)
   }
 
-  const selectable = tool === 'select'
+  const selectable = tool === 'select' && !readOnly
 
   function afterFromNode(before: Shape, node: Konva.Node): Shape {
     if (before.type === 'pen' || before.type === 'arrow') {
@@ -308,13 +309,13 @@ export default function Canvas({
       ref={stageRef}
       width={size.w} height={size.h}
       x={pos.x} y={pos.y} scaleX={scale} scaleY={scale}
-      draggable={tool === 'hand'}
+      draggable={readOnly || tool === 'hand'}
       onWheel={handleWheel}
       onDragEnd={(e) => { if (e.target === e.target.getStage()) setPos({ x: e.target.x(), y: e.target.y() }) }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      style={{ cursor: tool === 'hand' ? 'grab' : selectable ? 'default' : 'crosshair' }}
+      style={{ cursor: readOnly || tool === 'hand' ? 'grab' : selectable ? 'default' : 'crosshair' }}
     >
       <Layer>
         {shapes.map((s) => renderShape(s))}
