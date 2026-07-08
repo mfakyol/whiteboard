@@ -13,8 +13,8 @@ see each other's cursors move live. Create a board, share the link, draw togethe
 - **Select / move / delete** — grab any shape, drag it, delete with a keypress
 - **Color & stroke width** picker
 - **Persistent boards** — every board is stored in MongoDB and restored when you rejoin
+- **Infinite canvas** — pan (hand tool / trackpad) and zoom (Ctrl+scroll) over an unbounded surface
 - **Shareable rooms** — each board has a short id; share the URL to invite others
-- **Export to PNG**
 
 ## Tech stack
 

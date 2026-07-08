@@ -118,22 +118,13 @@ export default function BoardPage() {
     setPos({ x: 0, y: 0 })
   }
 
-  const exportPng = () => {
-    const uri = stageRef.current?.toDataURL({ pixelRatio: 2 })
-    if (!uri) return
-    const link = document.createElement('a')
-    link.download = `board-${boardId}.png`
-    link.href = uri
-    link.click()
-  }
-
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <Toolbar
         tool={tool} setTool={setTool}
         color={color} setColor={setColor}
         strokeWidth={strokeWidth} setStrokeWidth={setStrokeWidth}
-        onClear={clearBoard} onExport={exportPng}
+        onClear={clearBoard}
         users={users} boardId={boardId}
       />
       <div className="flex-1 relative">

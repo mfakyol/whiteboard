@@ -23,14 +23,13 @@ interface Props {
   strokeWidth: number
   setStrokeWidth: (n: number) => void
   onClear: () => void
-  onExport: () => void
   users: User[]
   boardId: string
 }
 
 export default function Toolbar({
   tool, setTool, color, setColor, strokeWidth, setStrokeWidth,
-  onClear, onExport, users, boardId,
+  onClear, users, boardId,
 }: Props) {
   const [copied, setCopied] = useState(false)
 
@@ -99,12 +98,6 @@ export default function Toolbar({
           className="rounded-lg bg-slate-800 hover:bg-slate-700 px-3 py-1.5 text-sm"
         >
           {copied ? '✓ Copied' : '🔗 Share'}
-        </button>
-        <button
-          onClick={onExport}
-          className="rounded-lg bg-slate-800 hover:bg-slate-700 px-3 py-1.5 text-sm"
-        >
-          ⬇ PNG
         </button>
         <button
           onClick={onClear}
