@@ -93,6 +93,25 @@ export function registerSocketHandlers(io: Server): void {
       await Board.updateOne({ _id: boardId }, { $set: { shapes: [] } })
     })
 
+    // Layer order: reorder the whole shapes array to the given id order.
+    socket.on(
+      'board:reorder',
+      async ({ boardId, ids }: { boardId: string; ids: string[] }) => {
+        if (!boardId || !Array.isArray(ids)) return
+        socket.to(room(boardId)).emit('board:reorder', ids)
+        const board = await Board.findById(boardId)
+        if (!board) return
+        const byId = new Map(
+          (board.shapes as Shape[]).map((s) => [s.id, s]),
+        )
+        board.shapes = ids
+          .map((id) => byId.get(id))
+          .filter((s): s is Shape => Boolean(s))
+        board.markModified('shapes')
+        await board.save()
+      },
+    )
+
     // Live cursor — high frequency, broadcast only (never persisted).
     socket.on(
       'cursor:move',

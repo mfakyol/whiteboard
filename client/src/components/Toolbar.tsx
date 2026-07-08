@@ -28,6 +28,11 @@ interface Props {
   canUndo: boolean
   canRedo: boolean
   onPickImage: () => void
+  hasSelection: boolean
+  onBringToFront: () => void
+  onSendToBack: () => void
+  onDuplicate: () => void
+  onDelete: () => void
   users: User[]
   boardId: string
   onJumpToUser: (id: string) => void
@@ -36,6 +41,7 @@ interface Props {
 export default function Toolbar({
   tool, setTool, color, setColor, strokeWidth, setStrokeWidth,
   onClear, onUndo, onRedo, canUndo, canRedo, onPickImage,
+  hasSelection, onBringToFront, onSendToBack, onDuplicate, onDelete,
   users, boardId, onJumpToUser,
 }: Props) {
   const [copied, setCopied] = useState(false)
@@ -72,6 +78,16 @@ export default function Toolbar({
         <button title="Undo (Ctrl+Z)" onClick={onUndo} disabled={!canUndo} className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-slate-700 disabled:opacity-30">↶</button>
         <button title="Redo (Ctrl+Shift+Z)" onClick={onRedo} disabled={!canRedo} className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-slate-700 disabled:opacity-30">↷</button>
       </div>
+
+      {/* Selection actions */}
+      {hasSelection && (
+        <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
+          <button title="Duplicate (Ctrl+D)" onClick={onDuplicate} className="w-9 h-9 rounded-md hover:bg-slate-700">⧉</button>
+          <button title="Bring to front ( ] )" onClick={onBringToFront} className="w-9 h-9 rounded-md hover:bg-slate-700">⬆</button>
+          <button title="Send to back ( [ )" onClick={onSendToBack} className="w-9 h-9 rounded-md hover:bg-slate-700">⬇</button>
+          <button title="Delete (Del)" onClick={onDelete} className="w-9 h-9 rounded-md hover:bg-slate-700">🗑️</button>
+        </div>
+      )}
 
       {/* Colors */}
       <div className="flex items-center gap-1">

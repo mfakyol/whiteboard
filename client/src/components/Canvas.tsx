@@ -13,8 +13,16 @@ const MAX_SCALE = 6
 function uid() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 }
+function toggle(list: string[], id: string): string[] {
+  return list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
+}
+function rectsIntersect(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+): boolean {
+  return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y)
+}
 
-// Loads an image src into a Konva Image node.
 function ImageShape({ src, nodeProps }: { src?: string; nodeProps: Record<string, unknown> }) {
   const [img, setImg] = useState<HTMLImageElement>()
   useEffect(() => {
@@ -33,10 +41,10 @@ interface Props {
   shapes: Shape[]
   cursors: Record<string, Cursor>
   users: User[]
-  selectedId: string | null
-  setSelectedId: (id: string | null) => void
+  selectedIds: string[]
+  setSelectedIds: (ids: string[]) => void
   addShape: (s: Shape) => void
-  commitShape: (before: Shape, after: Shape) => void
+  commitBatch: (pairs: { before: Shape; after: Shape }[]) => void
   onStartText: (worldX: number, worldY: number) => void
   onEditText: (s: Shape) => void
   onCursorMove: (x: number, y: number) => void
@@ -48,42 +56,41 @@ interface Props {
 }
 
 export default function Canvas({
-  tool, color, strokeWidth, shapes, cursors, users, selectedId,
-  setSelectedId, addShape, commitShape, onStartText, onEditText,
+  tool, color, strokeWidth, shapes, cursors, users, selectedIds,
+  setSelectedIds, addShape, commitBatch, onStartText, onEditText,
   onCursorMove, stageRef, scale, pos, setScale, setPos,
 }: Props) {
-  const [size, setSize] = useState({
-    w: window.innerWidth,
-    h: window.innerHeight - TOP_OFFSET,
-  })
+  const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight - TOP_OFFSET })
   const [draft, setDraft] = useState<Shape | null>(null)
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const drawing = useRef(false)
   const lastCursor = useRef(0)
   const trRef = useRef<Konva.Transformer | null>(null)
+  const marqueeStart = useRef<{ x: number; y: number } | null>(null)
+  const marqueeAdd = useRef(false)
+  // Active group-drag: ids + each node's starting position.
+  const dragRef = useRef<{ ids: string[]; start: Record<string, { x: number; y: number }> } | null>(null)
 
   useEffect(() => {
-    const onResize = () =>
-      setSize({ w: window.innerWidth, h: window.innerHeight - TOP_OFFSET })
+    const onResize = () => setSize({ w: window.innerWidth, h: window.innerHeight - TOP_OFFSET })
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  // Attach the resize/rotate transformer to the selected (non-stroke) shape.
+  // Resize/rotate transformer only for a single, non-stroke selection.
   useEffect(() => {
     const tr = trRef.current
     const stage = stageRef.current
     if (!tr || !stage) return
-    const s = shapes.find((x) => x.id === selectedId)
-    if (tool === 'select' && s && s.type !== 'pen' && s.type !== 'arrow') {
-      const node = stage.findOne('#' + selectedId)
-      if (node) {
-        tr.nodes([node])
-        tr.getLayer()?.batchDraw()
-        return
+    if (tool === 'select' && selectedIds.length === 1) {
+      const s = shapes.find((x) => x.id === selectedIds[0])
+      if (s && s.type !== 'pen' && s.type !== 'arrow') {
+        const node = stage.findOne('#' + s.id)
+        if (node) { tr.nodes([node]); tr.getLayer()?.batchDraw(); return }
       }
     }
     tr.nodes([])
-  }, [selectedId, tool, shapes, stageRef])
+  }, [selectedIds, tool, shapes, stageRef])
 
   function pointer(): { x: number; y: number } {
     const p = stageRef.current?.getRelativePointerPosition()
@@ -112,44 +119,62 @@ export default function Canvas({
   function handleMouseDown(e: Konva.KonvaEventObject<MouseEvent>) {
     if (tool === 'hand') return
     if (tool === 'select') {
-      if (e.target === e.target.getStage()) setSelectedId(null)
+      const onEmpty = e.target === e.target.getStage()
+      if (onEmpty) {
+        if (!e.evt.shiftKey) setSelectedIds([])
+        marqueeAdd.current = e.evt.shiftKey
+        const p = pointer()
+        marqueeStart.current = p
+        setMarquee({ x: p.x, y: p.y, w: 0, h: 0 })
+      }
       return
     }
     const { x, y } = pointer()
     const base = { id: uid(), stroke: color, strokeWidth }
-
-    if (tool === 'pen') {
-      setDraft({ ...base, type: 'pen', points: [x, y] }); drawing.current = true
-    } else if (tool === 'arrow') {
-      setDraft({ ...base, type: 'arrow', points: [x, y, x, y] }); drawing.current = true
-    } else if (tool === 'rect' || tool === 'ellipse') {
-      setDraft({ ...base, type: tool, x, y, width: 0, height: 0 }); drawing.current = true
-    } else if (tool === 'text') {
-      onStartText(x, y)
-    } else if (tool === 'sticky') {
-      addShape({ ...base, type: 'sticky', x: x - 80, y: y - 60, width: 160, height: 120, text: 'Note', fill: '#fde68a', stroke: '#00000000' })
-    }
+    if (tool === 'pen') { setDraft({ ...base, type: 'pen', points: [x, y] }); drawing.current = true }
+    else if (tool === 'arrow') { setDraft({ ...base, type: 'arrow', points: [x, y, x, y] }); drawing.current = true }
+    else if (tool === 'rect' || tool === 'ellipse') { setDraft({ ...base, type: tool, x, y, width: 0, height: 0 }); drawing.current = true }
+    else if (tool === 'text') { onStartText(x, y) }
+    else if (tool === 'sticky') { addShape({ ...base, type: 'sticky', x: x - 80, y: y - 60, width: 160, height: 120, text: 'Note', fill: '#fde68a', stroke: '#00000000' }) }
   }
 
   function handleMouseMove() {
     const { x, y } = pointer()
     const now = Date.now()
-    if (now - lastCursor.current > 40) {
-      lastCursor.current = now
-      onCursorMove(x, y)
+    if (now - lastCursor.current > 40) { lastCursor.current = now; onCursorMove(x, y) }
+
+    if (marqueeStart.current) {
+      const s = marqueeStart.current
+      setMarquee({ x: s.x, y: s.y, w: x - s.x, h: y - s.y })
+      return
     }
     if (!drawing.current || !draft) return
-    if (draft.type === 'pen') {
-      setDraft({ ...draft, points: [...(draft.points ?? []), x, y] })
-    } else if (draft.type === 'arrow') {
-      const p = draft.points ?? [x, y, x, y]
-      setDraft({ ...draft, points: [p[0], p[1], x, y] })
-    } else if (draft.type === 'rect' || draft.type === 'ellipse') {
-      setDraft({ ...draft, width: x - (draft.x ?? 0), height: y - (draft.y ?? 0) })
-    }
+    if (draft.type === 'pen') setDraft({ ...draft, points: [...(draft.points ?? []), x, y] })
+    else if (draft.type === 'arrow') { const p = draft.points ?? [x, y, x, y]; setDraft({ ...draft, points: [p[0], p[1], x, y] }) }
+    else if (draft.type === 'rect' || draft.type === 'ellipse') setDraft({ ...draft, width: x - (draft.x ?? 0), height: y - (draft.y ?? 0) })
   }
 
   function handleMouseUp() {
+    // Finish marquee selection.
+    if (marqueeStart.current) {
+      const m = marquee
+      marqueeStart.current = null
+      setMarquee(null)
+      if (m) {
+        const box = { x: Math.min(m.x, m.x + m.w), y: Math.min(m.y, m.y + m.h), w: Math.abs(m.w), h: Math.abs(m.h) }
+        const stage = stageRef.current
+        if (stage && (box.w > 3 || box.h > 3)) {
+          const hit = shapes.filter((s) => {
+            const node = stage.findOne('#' + s.id)
+            if (!node) return false
+            const r = node.getClientRect({ relativeTo: stage })
+            return rectsIntersect(box, { x: r.x, y: r.y, w: r.width, h: r.height })
+          }).map((s) => s.id)
+          setSelectedIds(marqueeAdd.current ? Array.from(new Set([...selectedIds, ...hit])) : hit)
+        }
+      }
+      return
+    }
     if (!drawing.current || !draft) { drawing.current = false; return }
     drawing.current = false
     let s = draft
@@ -167,24 +192,56 @@ export default function Canvas({
 
   const selectable = tool === 'select'
 
-  // Move committed to history (before = current s, after = new position).
-  function onDragEndShape(s: Shape, e: Konva.KonvaEventObject<DragEvent>) {
-    const node = e.target
-    let after: Shape
-    if (s.type === 'pen' || s.type === 'arrow') {
+  function afterFromNode(before: Shape, node: Konva.Node): Shape {
+    if (before.type === 'pen' || before.type === 'arrow') {
       const dx = node.x(), dy = node.y()
-      const pts = (s.points ?? []).map((p, i) => (i % 2 === 0 ? p + dx : p + dy))
+      const pts = (before.points ?? []).map((p, i) => (i % 2 === 0 ? p + dx : p + dy))
       node.position({ x: 0, y: 0 })
-      after = { ...s, points: pts }
-    } else if (s.type === 'ellipse') {
-      after = { ...s, x: node.x() - (s.width ?? 0) / 2, y: node.y() - (s.height ?? 0) / 2 }
-    } else {
-      after = { ...s, x: node.x(), y: node.y() }
+      return { ...before, points: pts }
     }
-    commitShape(s, after)
+    if (before.type === 'ellipse') {
+      return { ...before, x: node.x() - (before.width ?? 0) / 2, y: node.y() - (before.height ?? 0) / 2 }
+    }
+    return { ...before, x: node.x(), y: node.y() }
   }
 
-  // Resize / rotate committed to history.
+  function onDragStartShape(s: Shape) {
+    const ids = selectedIds.includes(s.id) ? selectedIds : [s.id]
+    if (!selectedIds.includes(s.id)) setSelectedIds([s.id])
+    const stage = stageRef.current
+    const start: Record<string, { x: number; y: number }> = {}
+    ids.forEach((id) => {
+      const n = stage?.findOne('#' + id)
+      if (n) start[id] = { x: n.x(), y: n.y() }
+    })
+    dragRef.current = { ids, start }
+  }
+  function onDragMoveShape(s: Shape, e: Konva.KonvaEventObject<DragEvent>) {
+    const d = dragRef.current
+    if (!d || d.ids.length < 2) return
+    const dx = e.target.x() - (d.start[s.id]?.x ?? 0)
+    const dy = e.target.y() - (d.start[s.id]?.y ?? 0)
+    const stage = stageRef.current
+    d.ids.forEach((id) => {
+      if (id === s.id) return
+      const n = stage?.findOne('#' + id)
+      const st = d.start[id]
+      if (n && st) n.position({ x: st.x + dx, y: st.y + dy })
+    })
+  }
+  function onDragEndShape(s: Shape) {
+    const d = dragRef.current
+    const ids = d?.ids ?? [s.id]
+    const stage = stageRef.current
+    const pairs: { before: Shape; after: Shape }[] = []
+    ids.forEach((id) => {
+      const before = shapes.find((x) => x.id === id)
+      const node = stage?.findOne('#' + id)
+      if (before && node) pairs.push({ before, after: afterFromNode(before, node) })
+    })
+    dragRef.current = null
+    commitBatch(pairs)
+  }
   function onTransformEndShape(s: Shape, e: Konva.KonvaEventObject<Event>) {
     const node = e.target
     const sx = node.scaleX(), sy = node.scaleY()
@@ -192,37 +249,35 @@ export default function Canvas({
     const rotation = node.rotation()
     let after: Shape
     if (s.type === 'ellipse') {
-      const w = Math.max(5, (s.width ?? 0) * sx)
-      const h = Math.max(5, (s.height ?? 0) * sy)
+      const w = Math.max(5, (s.width ?? 0) * sx), h = Math.max(5, (s.height ?? 0) * sy)
       after = { ...s, width: w, height: h, rotation, x: node.x() - w / 2, y: node.y() - h / 2 }
     } else if (s.type === 'text') {
       after = { ...s, x: node.x(), y: node.y(), rotation, fontSize: Math.max(6, (s.fontSize ?? 22) * sy) }
     } else {
-      after = {
-        ...s, x: node.x(), y: node.y(), rotation,
-        width: Math.max(5, (s.width ?? 0) * sx),
-        height: Math.max(5, (s.height ?? 0) * sy),
-      }
+      after = { ...s, x: node.x(), y: node.y(), rotation, width: Math.max(5, (s.width ?? 0) * sx), height: Math.max(5, (s.height ?? 0) * sy) }
     }
-    commitShape(s, after)
+    commitBatch([{ before: s, after }])
   }
 
   function renderShape(s: Shape, isDraft = false) {
-    const selected = !isDraft && s.id === selectedId
+    const selected = !isDraft && selectedIds.includes(s.id)
     const common = {
       id: s.id,
       rotation: s.rotation,
       draggable: selectable && !isDraft,
-      onClick: () => selectable && setSelectedId(s.id),
-      onTap: () => selectable && setSelectedId(s.id),
+      onClick: (e: Konva.KonvaEventObject<MouseEvent>) => {
+        if (!selectable) return
+        setSelectedIds(e.evt.shiftKey ? toggle(selectedIds, s.id) : [s.id])
+      },
       onDblClick: () => (s.type === 'text' || s.type === 'sticky') && onEditText(s),
-      onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => onDragEndShape(s, e),
+      onDragStart: () => onDragStartShape(s),
+      onDragMove: (e: Konva.KonvaEventObject<DragEvent>) => onDragMoveShape(s, e),
+      onDragEnd: () => onDragEndShape(s),
       onTransformEnd: (e: Konva.KonvaEventObject<Event>) => onTransformEndShape(s, e),
       shadowColor: '#6366f1',
       shadowBlur: selected ? 12 : 0,
       opacity: isDraft ? 0.8 : 1,
     }
-
     switch (s.type) {
       case 'pen':
         return <Line key={s.id} {...common} points={s.points} stroke={s.stroke} strokeWidth={s.strokeWidth} lineCap="round" lineJoin="round" tension={0.4} hitStrokeWidth={20} />
@@ -251,17 +306,11 @@ export default function Canvas({
   return (
     <Stage
       ref={stageRef}
-      width={size.w}
-      height={size.h}
-      x={pos.x}
-      y={pos.y}
-      scaleX={scale}
-      scaleY={scale}
+      width={size.w} height={size.h}
+      x={pos.x} y={pos.y} scaleX={scale} scaleY={scale}
       draggable={tool === 'hand'}
       onWheel={handleWheel}
-      onDragEnd={(e) => {
-        if (e.target === e.target.getStage()) setPos({ x: e.target.x(), y: e.target.y() })
-      }}
+      onDragEnd={(e) => { if (e.target === e.target.getStage()) setPos({ x: e.target.x(), y: e.target.y() }) }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -270,6 +319,14 @@ export default function Canvas({
       <Layer>
         {shapes.map((s) => renderShape(s))}
         {draft && renderShape(draft, true)}
+        {marquee && (
+          <Rect
+            x={Math.min(marquee.x, marquee.x + marquee.w)}
+            y={Math.min(marquee.y, marquee.y + marquee.h)}
+            width={Math.abs(marquee.w)} height={Math.abs(marquee.h)}
+            fill="#6366f133" stroke="#6366f1" strokeWidth={1 / scale} listening={false}
+          />
+        )}
         <Transformer ref={trRef} rotateEnabled ignoreStroke keepRatio={false} anchorSize={8} borderStroke="#6366f1" anchorStroke="#6366f1" />
       </Layer>
 
