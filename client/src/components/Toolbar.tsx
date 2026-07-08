@@ -4,6 +4,7 @@ import PresenceBar from './PresenceBar'
 
 const TOOLS: { id: Tool; label: string; icon: string }[] = [
   { id: 'select', label: 'Select / move', icon: '↖' },
+  { id: 'hand', label: 'Pan (drag canvas)', icon: '✋' },
   { id: 'pen', label: 'Pen', icon: '✏️' },
   { id: 'rect', label: 'Rectangle', icon: '▭' },
   { id: 'ellipse', label: 'Ellipse', icon: '◯' },

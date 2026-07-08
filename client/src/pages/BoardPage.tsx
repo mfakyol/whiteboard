@@ -20,6 +20,8 @@ export default function BoardPage() {
   const [color, setColor] = useState('#0f172a')
   const [strokeWidth, setStrokeWidth] = useState(3)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [scale, setScale] = useState(1)
+  const [pos, setPos] = useState({ x: 0, y: 0 })
 
   useEffect(() => {
     const join = () => socket.emit('board:join', { boardId, user })
@@ -102,6 +104,20 @@ export default function BoardPage() {
   const onCursorMove = (x: number, y: number) =>
     socket.emit('cursor:move', { boardId, x, y })
 
+  const zoomAround = (factor: number) => {
+    const cx = window.innerWidth / 2
+    const cy = (window.innerHeight - 53) / 2
+    const worldX = (cx - pos.x) / scale
+    const worldY = (cy - pos.y) / scale
+    const next = Math.max(0.15, Math.min(scale * factor, 6))
+    setScale(next)
+    setPos({ x: cx - worldX * next, y: cy - worldY * next })
+  }
+  const resetView = () => {
+    setScale(1)
+    setPos({ x: 0, y: 0 })
+  }
+
   const exportPng = () => {
     const uri = stageRef.current?.toDataURL({ pixelRatio: 2 })
     if (!uri) return
@@ -127,7 +143,37 @@ export default function BoardPage() {
           selectedId={selectedId} setSelectedId={setSelectedId}
           addShape={addShape} updateShape={updateShape}
           onCursorMove={onCursorMove} stageRef={stageRef}
+          scale={scale} pos={pos} setScale={setScale} setPos={setPos}
         />
+
+        {/* Zoom controls */}
+        <div className="absolute bottom-4 left-4 flex items-center gap-1 bg-slate-900/90 text-slate-100 rounded-lg p-1 shadow-lg select-none">
+          <button
+            onClick={() => zoomAround(1 / 1.2)}
+            className="w-8 h-8 rounded-md hover:bg-slate-700 text-lg"
+            title="Zoom out"
+          >
+            −
+          </button>
+          <button
+            onClick={resetView}
+            className="px-2 h-8 rounded-md hover:bg-slate-700 text-xs tabular-nums min-w-[3.5rem]"
+            title="Reset view"
+          >
+            {Math.round(scale * 100)}%
+          </button>
+          <button
+            onClick={() => zoomAround(1.2)}
+            className="w-8 h-8 rounded-md hover:bg-slate-700 text-lg"
+            title="Zoom in"
+          >
+            +
+          </button>
+        </div>
+
+        <div className="absolute bottom-4 right-4 text-xs text-slate-500 bg-slate-900/70 rounded px-2 py-1 select-none">
+          ✋ pan · Ctrl+scroll zoom
+        </div>
       </div>
     </div>
   )

@@ -4,6 +4,8 @@ import type Konva from 'konva'
 import type { Shape, Tool, User, Cursor } from '../lib/types'
 
 const TOP_OFFSET = 53 // toolbar height
+const MIN_SCALE = 0.15
+const MAX_SCALE = 6
 
 function uid() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
@@ -22,11 +24,17 @@ interface Props {
   updateShape: (s: Shape, persist?: boolean) => void
   onCursorMove: (x: number, y: number) => void
   stageRef: React.RefObject<Konva.Stage | null>
+  // Viewport transform (infinite canvas pan/zoom).
+  scale: number
+  pos: { x: number; y: number }
+  setScale: (s: number) => void
+  setPos: (p: { x: number; y: number }) => void
 }
 
 export default function Canvas({
   tool, color, strokeWidth, shapes, cursors, users, selectedId,
   setSelectedId, addShape, updateShape, onCursorMove, stageRef,
+  scale, pos, setScale, setPos,
 }: Props) {
   const [size, setSize] = useState({
     w: window.innerWidth,
@@ -43,12 +51,35 @@ export default function Canvas({
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
+  // Pointer in world (canvas) coordinates — accounts for pan + zoom.
   function pointer(): { x: number; y: number } {
-    const pos = stageRef.current?.getPointerPosition()
-    return pos ?? { x: 0, y: 0 }
+    const p = stageRef.current?.getRelativePointerPosition()
+    return p ?? { x: 0, y: 0 }
+  }
+
+  // Ctrl/⌘+wheel (or trackpad pinch) = zoom toward the cursor; plain wheel = pan.
+  function handleWheel(e: Konva.KonvaEventObject<WheelEvent>) {
+    e.evt.preventDefault()
+    const stage = stageRef.current
+    if (!stage) return
+
+    if (e.evt.ctrlKey || e.evt.metaKey) {
+      const screen = stage.getPointerPosition()
+      if (!screen) return
+      const worldX = (screen.x - pos.x) / scale
+      const worldY = (screen.y - pos.y) / scale
+      const factor = 1.08
+      let next = e.evt.deltaY > 0 ? scale / factor : scale * factor
+      next = Math.max(MIN_SCALE, Math.min(next, MAX_SCALE))
+      setScale(next)
+      setPos({ x: screen.x - worldX * next, y: screen.y - worldY * next })
+    } else {
+      setPos({ x: pos.x - e.evt.deltaX, y: pos.y - e.evt.deltaY })
+    }
   }
 
   function handleMouseDown(e: Konva.KonvaEventObject<MouseEvent>) {
+    if (tool === 'hand') return // stage handles panning
     // Clicking empty canvas in select mode clears selection.
     if (tool === 'select') {
       if (e.target === e.target.getStage()) setSelectedId(null)
@@ -79,7 +110,8 @@ export default function Canvas({
   function handleMouseMove() {
     const { x, y } = pointer()
 
-    // Live cursor broadcast (throttled).
+    // Live cursor broadcast (throttled) — world coords, so everyone sees it in
+    // the right place regardless of their own pan/zoom.
     const now = Date.now()
     if (now - lastCursor.current > 40) {
       lastCursor.current = now
@@ -189,30 +221,52 @@ export default function Canvas({
     }
   }
 
+  // World-space rectangle covering the current viewport (keeps a solid
+  // background under any pan/zoom, and makes PNG exports non-transparent).
+  const bg = {
+    x: -pos.x / scale,
+    y: -pos.y / scale,
+    w: size.w / scale,
+    h: size.h / scale,
+  }
+
   return (
     <Stage
       ref={stageRef}
       width={size.w}
       height={size.h}
+      x={pos.x}
+      y={pos.y}
+      scaleX={scale}
+      scaleY={scale}
+      draggable={tool === 'hand'}
+      onWheel={handleWheel}
+      onDragEnd={(e) => {
+        if (e.target === e.target.getStage())
+          setPos({ x: e.target.x(), y: e.target.y() })
+      }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      style={{ background: '#f8fafc', cursor: selectable ? 'default' : 'crosshair' }}
+      style={{
+        background: '#eef2f7',
+        cursor: tool === 'hand' ? 'grab' : selectable ? 'default' : 'crosshair',
+      }}
     >
       <Layer>
-        {/* White background so exported PNGs aren't transparent. */}
-        <Rect x={0} y={0} width={size.w} height={size.h} fill="#f8fafc" listening={false} />
+        <Rect x={bg.x} y={bg.y} width={bg.w} height={bg.h} fill="#f8fafc" listening={false} />
         {shapes.map((s) => renderShape(s))}
         {draft && renderShape(draft, true)}
       </Layer>
 
-      {/* Remote cursors (non-interactive) */}
+      {/* Remote cursors (non-interactive). Counter-scaled so they stay a
+          constant on-screen size at any zoom level. */}
       <Layer listening={false}>
         {Object.entries(cursors).map(([userId, c]) => {
           const u = users.find((x) => x.id === userId)
           if (!u) return null
           return (
-            <Group key={userId} x={c.x} y={c.y}>
+            <Group key={userId} x={c.x} y={c.y} scaleX={1 / scale} scaleY={1 / scale}>
               <Circle radius={5} fill={u.color} />
               <Rect x={8} y={8} width={u.name.length * 7 + 12} height={18}
                 fill={u.color} cornerRadius={4} />

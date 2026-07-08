@@ -1,5 +1,6 @@
 export type Tool =
   | 'select'
+  | 'hand'
   | 'pen'
   | 'rect'
   | 'ellipse'
@@ -9,7 +10,7 @@ export type Tool =
 
 export interface Shape {
   id: string
-  type: Exclude<Tool, 'select'>
+  type: Exclude<Tool, 'select' | 'hand'>
   stroke: string
   strokeWidth: number
   // pen / arrow
