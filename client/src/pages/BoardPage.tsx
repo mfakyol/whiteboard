@@ -295,6 +295,26 @@ export default function BoardPage() {
     setEditing(null)
   }
   const editorScreen = editing ? { left: pos.x + editing.worldX * scale, top: pos.y + editing.worldY * scale } : null
+  // Make the inline editor match what's being edited: a sticky note is edited
+  // in-place (same yellow, size, font & padding) instead of a jarring white box.
+  const editingShape = editing?.id ? shapes.find((s) => s.id === editing.id) : null
+  const editingSticky = editingShape?.type === 'sticky' ? editingShape : null
+  const editorStyle = editingSticky
+    ? {
+        left: editorScreen?.left, top: editorScreen?.top,
+        width: (editingSticky.width ?? 160) * scale,
+        height: (editingSticky.height ?? 120) * scale,
+        fontSize: 16 * scale, padding: 12 * scale,
+        background: editingSticky.fill ?? '#fde68a', color: '#1f2937',
+      }
+    : {
+        left: editorScreen?.left, top: editorScreen?.top,
+        fontSize: (editingShape?.fontSize ?? 22) * scale,
+        minWidth: 120, color: editingShape?.fill ?? color,
+      }
+  const editorClass = editingSticky
+    ? 'absolute z-10 rounded-md outline-none resize-none shadow-lg leading-snug'
+    : 'absolute z-10 bg-white/95 border-2 border-indigo-500 rounded px-1 outline-none resize-none shadow'
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -342,8 +362,8 @@ export default function BoardPage() {
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitText() }
               else if (e.key === 'Escape') setEditing(null)
             }}
-            className="absolute z-10 bg-white/95 border-2 border-indigo-500 rounded px-1 outline-none resize-none shadow"
-            style={{ left: editorScreen.left, top: editorScreen.top, fontSize: 22 * scale, minWidth: 120, color }} />
+            className={editorClass}
+            style={editorStyle} />
         )}
 
         <div className="absolute bottom-4 left-4 flex items-center gap-1 bg-slate-900/90 text-slate-100 rounded-lg p-1 shadow-lg select-none">
