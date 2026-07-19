@@ -1,126 +1,160 @@
 import type { Server, Socket } from 'socket.io'
-import { Board, type Shape } from '../models/Board'
-
-interface User {
-  id: string
-  name: string
-  color: string
-}
+import type { ZodType } from 'zod'
+import {
+  addShape,
+  clearBoard,
+  deleteShape,
+  getOrCreateBoard,
+  reorderShapes,
+  updateShape,
+} from '../services/board.service'
+import { AppError } from '../errors/AppError'
+import {
+  boardClearSchema,
+  cursorSchema,
+  joinSchema,
+  reorderSchema,
+  shapeAddSchema,
+  shapeDeleteSchema,
+  shapeUpdateSchema,
+  type PresenceUser,
+} from '../schemas/socket.schema'
 
 interface SocketData {
   boardId?: string
-  user?: User
+  user?: PresenceUser
 }
 
 // In-memory presence: boardId -> (socketId -> user). Presence is ephemeral
 // (who is here right now); the drawing itself is persisted in MongoDB.
-const presence = new Map<string, Map<string, User>>()
+// NOTE: per-process — needs a shared store (Redis) to scale beyond one instance.
+const presence = new Map<string, Map<string, PresenceUser>>()
 
 function room(boardId: string): string {
   return `board:${boardId}`
 }
 
-function presenceList(boardId: string): User[] {
+function presenceList(boardId: string): PresenceUser[] {
   return Array.from(presence.get(boardId)?.values() ?? [])
 }
 
-async function getOrCreateBoard(boardId: string) {
-  let board = await Board.findById(boardId)
-  if (!board) board = await Board.create({ _id: boardId, shapes: [] })
-  return board
+// Simple per-socket, per-category sliding-window limiter to stop a client from
+// flooding a room / hammering the DB with high-frequency events.
+function makeLimiter(limit: number, windowMs: number): () => boolean {
+  let count = 0
+  let start = Date.now()
+  return () => {
+    const now = Date.now()
+    if (now - start > windowMs) {
+      start = now
+      count = 0
+    }
+    count += 1
+    return count <= limit
+  }
+}
+
+// Validate a socket payload, then run the handler; report failures only to the
+// caller. Never lets a handler rejection crash the process.
+function on<T>(
+  socket: Socket,
+  event: string,
+  schema: ZodType<T>,
+  handler: (data: T) => void | Promise<void>,
+  gate?: () => boolean,
+): void {
+  socket.on(event, async (payload: unknown) => {
+    if (gate && !gate()) return // rate-limited: silently drop
+    const parsed = schema.safeParse(payload)
+    if (!parsed.success) return // invalid payload: ignore
+    try {
+      await handler(parsed.data)
+    } catch (err) {
+      socket.emit('error', {
+        message: err instanceof AppError ? err.message : 'Server error',
+      })
+    }
+  })
 }
 
 export function registerSocketHandlers(io: Server): void {
   io.on('connection', (socket: Socket) => {
     const data = socket.data as SocketData
+    // High-frequency events get their own budgets.
+    const cursorGate = makeLimiter(60, 1000)
+    const writeGate = makeLimiter(80, 1000)
 
-    socket.on(
-      'board:join',
-      async ({ boardId, user }: { boardId: string; user: User }) => {
-        if (!boardId || !user) return
-        data.boardId = boardId
-        data.user = user
-        socket.join(room(boardId))
+    on(socket, 'board:join', joinSchema, async ({ boardId, user }) => {
+      data.boardId = boardId
+      data.user = user
+      socket.join(room(boardId))
 
-        // Send the current board state to the joiner.
-        const board = await getOrCreateBoard(boardId)
-        socket.emit('board:state', { shapes: board.shapes })
+      // Send the current board state to the joiner.
+      const board = await getOrCreateBoard(boardId)
+      socket.emit('board:state', { shapes: board.shapes })
 
-        // Track & broadcast presence.
-        if (!presence.has(boardId)) presence.set(boardId, new Map())
-        presence.get(boardId)!.set(socket.id, user)
-        socket.emit('presence:list', presenceList(boardId))
-        socket.to(room(boardId)).emit('presence:join', user)
-      },
-    )
+      // Track & broadcast presence.
+      if (!presence.has(boardId)) presence.set(boardId, new Map())
+      presence.get(boardId)!.set(socket.id, user)
+      socket.emit('presence:list', presenceList(boardId))
+      socket.to(room(boardId)).emit('presence:join', user)
+    })
 
-    socket.on(
+    on(
+      socket,
       'shape:add',
-      async ({ boardId, shape }: { boardId: string; shape: Shape }) => {
-        if (!boardId || !shape?.id) return
+      shapeAddSchema,
+      async ({ boardId, shape }) => {
         socket.to(room(boardId)).emit('shape:add', shape)
-        await Board.updateOne({ _id: boardId }, { $push: { shapes: shape } })
+        await addShape(boardId, shape)
       },
+      writeGate,
     )
 
-    socket.on(
+    on(
+      socket,
       'shape:update',
-      async ({ boardId, shape }: { boardId: string; shape: Shape }) => {
-        if (!boardId || !shape?.id) return
+      shapeUpdateSchema,
+      async ({ boardId, shape }) => {
         socket.to(room(boardId)).emit('shape:update', shape)
-        await Board.updateOne(
-          { _id: boardId, 'shapes.id': shape.id },
-          { $set: { 'shapes.$': shape } },
-        )
+        await updateShape(boardId, shape)
       },
+      writeGate,
     )
 
-    socket.on(
+    on(
+      socket,
       'shape:delete',
-      async ({ boardId, shapeId }: { boardId: string; shapeId: string }) => {
-        if (!boardId || !shapeId) return
+      shapeDeleteSchema,
+      async ({ boardId, shapeId }) => {
         socket.to(room(boardId)).emit('shape:delete', shapeId)
-        await Board.updateOne(
-          { _id: boardId },
-          { $pull: { shapes: { id: shapeId } } },
-        )
+        await deleteShape(boardId, shapeId)
       },
+      writeGate,
     )
 
-    socket.on('board:clear', async ({ boardId }: { boardId: string }) => {
-      if (!boardId) return
+    on(socket, 'board:clear', boardClearSchema, async ({ boardId }) => {
       socket.to(room(boardId)).emit('board:clear')
-      await Board.updateOne({ _id: boardId }, { $set: { shapes: [] } })
+      await clearBoard(boardId)
     })
 
     // Layer order: reorder the whole shapes array to the given id order.
-    socket.on(
-      'board:reorder',
-      async ({ boardId, ids }: { boardId: string; ids: string[] }) => {
-        if (!boardId || !Array.isArray(ids)) return
-        socket.to(room(boardId)).emit('board:reorder', ids)
-        const board = await Board.findById(boardId)
-        if (!board) return
-        const byId = new Map(
-          (board.shapes as Shape[]).map((s) => [s.id, s]),
-        )
-        board.shapes = ids
-          .map((id) => byId.get(id))
-          .filter((s): s is Shape => Boolean(s))
-        board.markModified('shapes')
-        await board.save()
-      },
-    )
+    on(socket, 'board:reorder', reorderSchema, async ({ boardId, ids }) => {
+      socket.to(room(boardId)).emit('board:reorder', ids)
+      await reorderShapes(boardId, ids)
+    })
 
-    // Live cursor — high frequency, broadcast only (never persisted).
-    socket.on(
+    // Live cursor — high frequency, broadcast only (never persisted). Identity
+    // comes from the connection's join, not the payload.
+    on(
+      socket,
       'cursor:move',
-      ({ boardId, x, y }: { boardId: string; x: number; y: number }) => {
-        if (!boardId || !data.user) return
-        socket
-          .to(room(boardId))
-          .emit('cursor:move', { userId: data.user.id, x, y })
+      cursorSchema,
+      ({ boardId, x, y }) => {
+        if (!data.user) return
+        socket.to(room(boardId)).emit('cursor:move', { userId: data.user.id, x, y })
       },
+      cursorGate,
     )
 
     const leave = () => {
