@@ -4,7 +4,7 @@ import {
   Transformer, Image as KonvaImage,
 } from 'react-konva'
 import type Konva from 'konva'
-import type { Shape, Tool, User, Cursor } from '../lib/types'
+import type { Shape, Tool, User, Cursor } from '@/types'
 
 const TOP_OFFSET = 53
 const MIN_SCALE = 0.15

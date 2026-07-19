@@ -1,4 +1,5 @@
-import type { User } from '../lib/types'
+import type { User } from '@/types'
+import { t } from '@/i18n'
 
 interface Props {
   users: User[]
@@ -11,7 +12,7 @@ export default function PresenceBar({ users, onJumpToUser }: Props) {
       {users.map((u) => (
         <button
           key={u.id}
-          title={`Jump to ${u.name}`}
+          title={t('presence.jumpTo', { name: u.name })}
           onClick={() => onJumpToUser?.(u.id)}
           className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ring-2 ring-slate-900 hover:scale-110 transition"
           style={{ backgroundColor: u.color }}
@@ -19,7 +20,9 @@ export default function PresenceBar({ users, onJumpToUser }: Props) {
           {u.name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase()}
         </button>
       ))}
-      <span className="pl-4 text-sm text-slate-400">{users.length} online</span>
+      <span className="pl-4 text-sm text-slate-400">
+        {t('presence.online', { n: users.length })}
+      </span>
     </div>
   )
 }

@@ -1,4 +1,7 @@
-import type { User } from './types'
+// Guest identity (name + color) for presence, persisted in localStorage. This is
+// separate from the account (auth.store): a guest has an identity but no account.
+import type { User } from '@/types'
+import { uid } from '@/utils/id'
 
 const KEY = 'wb_user'
 
@@ -12,10 +15,6 @@ const ANIMALS = ['Fox', 'Owl', 'Cat', 'Wolf', 'Bear', 'Hawk', 'Lynx']
 
 function randomOf<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
-}
-
-function uid(): string {
-  return Math.random().toString(36).slice(2, 10)
 }
 
 export function getUser(): User {
@@ -37,7 +36,8 @@ export function getUser(): User {
 }
 
 export function setUserName(name: string): User {
-  const user = { ...getUser(), name: name.trim() || getUser().name }
+  const current = getUser()
+  const user = { ...current, name: name.trim() || current.name }
   localStorage.setItem(KEY, JSON.stringify(user))
   return user
 }

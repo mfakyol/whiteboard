@@ -1,49 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import type Konva from 'konva'
-import Canvas from '../components/Canvas'
-import Toolbar from '../components/Toolbar'
-import { getSocket } from '../lib/socket'
-import { getUser } from '../lib/user'
-import { getAccount } from '../lib/auth'
-import { getBoard, renameBoard } from '../lib/api'
-import type { Shape, Tool, User, Cursor } from '../lib/types'
+import Canvas from '@/components/board/Canvas'
+import Toolbar from '@/components/board/Toolbar'
+import { getSocket } from '@/services/socket.service'
+import { getUser } from '@/stores/user.store'
+import { getAccount } from '@/stores/auth.store'
+import { getBoard, renameBoard } from '@/services/board.service'
+import { uid } from '@/utils/id'
+import { fileToShapeImage } from '@/utils/image'
+import { t } from '@/i18n'
+import type { Shape, Tool, User, Cursor } from '@/types'
 
 const TOP = 53
 const TOOL_KEYS: Record<string, Tool> = {
   v: 'select', h: 'hand', p: 'pen', r: 'rect', o: 'ellipse', a: 'arrow', t: 'text', s: 'sticky',
 }
-function uid() {
-  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
-}
 
 interface HistoryOp { undo: () => void; redo: () => void }
 interface Editing { id: string | null; worldX: number; worldY: number; value: string }
-
-function fileToShapeImage(file: File): Promise<{ src: string; width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const img = new Image()
-      img.onload = () => {
-        const MAX = 900
-        let { width, height } = img
-        const scale = Math.min(1, MAX / Math.max(width, height))
-        width = Math.round(width * scale)
-        height = Math.round(height * scale)
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
-        resolve({ src: canvas.toDataURL('image/png'), width, height })
-      }
-      img.onerror = reject
-      img.src = reader.result as string
-    }
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
 
 export default function BoardPage() {
   const { id: boardId = '' } = useParams()
@@ -56,16 +31,16 @@ export default function BoardPage() {
   }, [account])
   const socket = useMemo(() => getSocket(), [])
 
-  const [boardName, setBoardName] = useState('Untitled board')
+  const [boardName, setBoardName] = useState(t('board.defaultName'))
   const [ownerId, setOwnerId] = useState<string | null>(null)
   const isOwner = !!account && ownerId === account.id
   useEffect(() => {
-    getBoard(boardId).then((m) => {
-      if (m) { setBoardName(m.name); setOwnerId(m.ownerId) }
+    getBoard(boardId).then((res) => {
+      if (res.success) { setBoardName(res.data.name); setOwnerId(res.data.ownerId) }
     })
   }, [boardId])
   const doRename = async () => {
-    const n = window.prompt('Rename board:', boardName)
+    const n = window.prompt(t('board.renamePrompt'), boardName)
     if (!n) return
     setBoardName(n)
     await renameBoard(boardId, n)
@@ -161,7 +136,7 @@ export default function BoardPage() {
     if (chosen.length) reorder([...chosen, ...others])
   }
   const clearBoard = () => {
-    if (!window.confirm('Clear the whole board for everyone?')) return
+    if (!window.confirm(t('board.clearConfirm'))) return
     const snapshot = shapesRef.current
     setShapes([]); socket.emit('board:clear', { boardId })
     pushOp({ undo: () => snapshot.forEach(emitAdd), redo: () => { setShapes([]); socket.emit('board:clear', { boardId }) } })
@@ -368,13 +343,13 @@ export default function BoardPage() {
         )}
 
         <div className="absolute bottom-4 left-4 flex items-center gap-1 bg-slate-900/90 text-slate-100 rounded-lg p-1 shadow-lg select-none">
-          <button onClick={() => zoomAround(1 / 1.2)} className="w-8 h-8 rounded-md hover:bg-slate-700 text-lg" title="Zoom out">−</button>
-          <button onClick={resetView} className="px-2 h-8 rounded-md hover:bg-slate-700 text-xs tabular-nums min-w-[3.5rem]" title="Reset view">{Math.round(scale * 100)}%</button>
-          <button onClick={() => zoomAround(1.2)} className="w-8 h-8 rounded-md hover:bg-slate-700 text-lg" title="Zoom in">+</button>
+          <button onClick={() => zoomAround(1 / 1.2)} className="w-8 h-8 rounded-md hover:bg-slate-700 text-lg" title={t('board.zoomOut')}>−</button>
+          <button onClick={resetView} className="px-2 h-8 rounded-md hover:bg-slate-700 text-xs tabular-nums min-w-[3.5rem]" title={t('board.resetView')}>{Math.round(scale * 100)}%</button>
+          <button onClick={() => zoomAround(1.2)} className="w-8 h-8 rounded-md hover:bg-slate-700 text-lg" title={t('board.zoomIn')}>+</button>
         </div>
 
         <div className="absolute bottom-4 right-4 text-xs text-slate-500 bg-slate-900/70 rounded px-2 py-1 select-none">
-          shortcuts: v/p/r/o/a/t/s · space=pan · Ctrl+D dup · [ ] layer
+          {t('board.shortcuts')}
         </div>
       </div>
     </div>

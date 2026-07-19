@@ -41,3 +41,7 @@ export interface Cursor {
   x: number
   y: number
 }
+
+// Discriminated result returned by every service call, so callers handle
+// errors explicitly and type-safely instead of catching thrown exceptions.
+export type Result<T> = { success: true; data: T } | { success: false; error: string }

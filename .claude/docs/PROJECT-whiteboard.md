@@ -85,10 +85,24 @@ per-room authorization then.
   backend-structure doc.
 - Structured logging (pino) instead of `console.*`.
 
-### Frontend — not started (next)
-- Relative imports (no `@/` alias); flat `lib/` instead of
-  `services/stores/hooks/schemas/utils`; flat `components/`; no store (state in
-  `Canvas.tsx`); no i18n (strings hardcoded).
+### Frontend — DONE (standards applied)
+- **`@/` alias** everywhere (tsconfig.app.json `paths` + vite `resolve.alias`); no
+  relative intra-`src` imports.
+- **Folders match the standard:** `services/` (auth, board, socket — all IO; board/auth
+  return a discriminated `Result<T>`), `stores/` (auth.store, user.store — localStorage
+  state), `utils/` (id, image — pure), `types/`, `i18n/`, and `components/board/` (Canvas,
+  Toolbar, PresenceBar in one feature folder). `lib/` is gone.
+- **i18n:** all user-facing copy in `i18n/en.ts`, read via a typed `t()` (`i18n/index.ts`);
+  no hardcoded strings in components. Homegrown (no i18n library dep).
+- Verified end-to-end in a browser: guest board create/navigate, toolbar+presence,
+  draw a shape, and **persistence across a full reload** (socket → server → Mongo →
+  board:state).
+
+### Frontend — still open (optional)
+- No client tests (only `oxlint` + `tsc`). No client-side Zod form validation / `schemas/`
+  yet (server validates; a `schemas/` mirror is optional). No zustand — plain
+  localStorage-backed store modules are enough at current scope; adopt zustand if shared
+  client state grows.
 
 ## Conventions for this repo/owner
 - **Do not add a `Co-Authored-By` trailer** to commits (owner preference, same owner
