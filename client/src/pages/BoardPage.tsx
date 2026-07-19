@@ -274,8 +274,12 @@ export default function BoardPage() {
   }
 
   // ---- in-place text ----
-  const startTextCreate = (worldX: number, worldY: number) => setEditing({ id: null, worldX, worldY, value: '' })
-  const startTextEdit = (s: Shape) => setEditing({ id: s.id, worldX: s.x ?? 0, worldY: s.y ?? 0, value: s.text ?? '' })
+  // Open the editor on the next frame so the click that places it has finished
+  // first — otherwise that same click blurs the freshly-focused textarea and
+  // onBlur commits an empty value, closing it before you can type.
+  const openEditor = (next: Editing) => requestAnimationFrame(() => setEditing(next))
+  const startTextCreate = (worldX: number, worldY: number) => openEditor({ id: null, worldX, worldY, value: '' })
+  const startTextEdit = (s: Shape) => openEditor({ id: s.id, worldX: s.x ?? 0, worldY: s.y ?? 0, value: s.text ?? '' })
   const commitText = () => {
     if (!editing) return
     const val = editing.value.trim()
