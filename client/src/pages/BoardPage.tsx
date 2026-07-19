@@ -18,7 +18,6 @@ const TOOL_KEYS: Record<string, Tool> = {
 }
 
 interface HistoryOp { undo: () => void; redo: () => void }
-interface Editing { id: string | null; worldX: number; worldY: number; value: string }
 
 export default function BoardPage() {
   const { id: boardId = '' } = useParams()
@@ -60,7 +59,6 @@ export default function BoardPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [scale, setScale] = useState(1)
   const [pos, setPos] = useState({ x: 0, y: 0 })
-  const [editing, setEditing] = useState<Editing | null>(null)
 
   const selectedRef = useRef<string[]>([])
   useEffect(() => { selectedRef.current = selectedIds }, [selectedIds])
@@ -273,49 +271,6 @@ export default function BoardPage() {
     setPos({ x: cx - c.x * scale, y: cy - c.y * scale })
   }
 
-  // ---- in-place text ----
-  // Open the editor on the next frame so the click that places it has finished
-  // first — otherwise that same click blurs the freshly-focused textarea and
-  // onBlur commits an empty value, closing it before you can type.
-  const openEditor = (next: Editing) => requestAnimationFrame(() => setEditing(next))
-  const startTextCreate = (worldX: number, worldY: number) => openEditor({ id: null, worldX, worldY, value: '' })
-  const startTextEdit = (s: Shape) => openEditor({ id: s.id, worldX: s.x ?? 0, worldY: s.y ?? 0, value: s.text ?? '' })
-  const commitText = () => {
-    if (!editing) return
-    const val = editing.value.trim()
-    if (editing.id) {
-      const before = shapesRef.current.find((x) => x.id === editing.id)
-      if (before) {
-        if (val) commitBatch([{ before, after: { ...before, text: val } }])
-        else removeShapes([before.id])
-      }
-    } else if (val) {
-      addShape({ id: uid(), type: 'text', stroke: color, strokeWidth: 1, x: editing.worldX, y: editing.worldY, text: val, fontSize: 22, fill: color })
-    }
-    setEditing(null)
-  }
-  const editorScreen = editing ? { left: pos.x + editing.worldX * scale, top: pos.y + editing.worldY * scale } : null
-  // Make the inline editor match what's being edited: a sticky note is edited
-  // in-place (same yellow, size, font & padding) instead of a jarring white box.
-  const editingShape = editing?.id ? shapes.find((s) => s.id === editing.id) : null
-  const editingSticky = editingShape?.type === 'sticky' ? editingShape : null
-  const editorStyle = editingSticky
-    ? {
-        left: editorScreen?.left, top: editorScreen?.top,
-        width: (editingSticky.width ?? 160) * scale,
-        height: (editingSticky.height ?? 120) * scale,
-        fontSize: 16 * scale, padding: 12 * scale,
-        background: editingSticky.fill ?? '#fde68a', color: '#1f2937',
-      }
-    : {
-        left: editorScreen?.left, top: editorScreen?.top,
-        fontSize: (editingShape?.fontSize ?? 22) * scale,
-        minWidth: 120, color: editingShape?.fill ?? color,
-      }
-  const editorClass = editingSticky
-    ? 'absolute z-10 rounded-md outline-none resize-none shadow-lg leading-snug'
-    : 'absolute z-10 bg-white/95 border-2 border-indigo-500 rounded px-1 outline-none resize-none shadow'
-
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <Toolbar
@@ -347,24 +302,11 @@ export default function BoardPage() {
           tool={tool} color={color} strokeWidth={strokeWidth}
           shapes={shapes} cursors={cursors} users={users}
           selectedIds={selectedIds} setSelectedIds={setSelectedIds}
-          addShape={addShape} commitBatch={commitBatch}
-          onStartText={startTextCreate} onEditText={startTextEdit}
+          addShape={addShape} commitBatch={commitBatch} removeShapes={removeShapes}
           onCursorMove={onCursorMove} stageRef={stageRef}
           scale={scale} pos={pos} setScale={setScale} setPos={setPos}
           readOnly={readOnly}
         />
-
-        {editing && editorScreen && (
-          <textarea autoFocus value={editing.value}
-            onChange={(e) => setEditing({ ...editing, value: e.target.value })}
-            onBlur={commitText}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitText() }
-              else if (e.key === 'Escape') setEditing(null)
-            }}
-            className={editorClass}
-            style={editorStyle} />
-        )}
 
         <div className="absolute bottom-4 left-4 flex items-center gap-1 bg-slate-900/90 text-slate-100 rounded-lg p-1 shadow-lg select-none">
           <button onClick={() => zoomAround(1 / 1.2)} className="w-8 h-8 rounded-md hover:bg-slate-700 text-lg" title={t('board.zoomOut')}>−</button>

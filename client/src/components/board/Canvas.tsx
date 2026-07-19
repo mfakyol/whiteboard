@@ -34,6 +34,24 @@ function ImageShape({ src, nodeProps }: { src?: string; nodeProps: Record<string
   return <KonvaImage {...nodeProps} image={img} />
 }
 
+// In-place text editor state. Geometry is stored in world units + the shape's
+// own attributes, so the DOM overlay is derived from the shape and follows
+// pan / zoom / rotation instead of being positioned by hand.
+interface EditorState {
+  id: string | null // null = creating new text
+  type: 'text' | 'sticky'
+  worldX: number
+  worldY: number
+  rotation: number
+  baseFontSize: number
+  basePadding: number
+  baseWidth?: number
+  baseHeight?: number
+  color: string
+  background?: string
+  value: string
+}
+
 interface Props {
   tool: Tool
   color: string
@@ -45,8 +63,7 @@ interface Props {
   setSelectedIds: (ids: string[]) => void
   addShape: (s: Shape) => void
   commitBatch: (pairs: { before: Shape; after: Shape }[]) => void
-  onStartText: (worldX: number, worldY: number) => void
-  onEditText: (s: Shape) => void
+  removeShapes: (ids: string[]) => void
   onCursorMove: (x: number, y: number) => void
   stageRef: React.RefObject<Konva.Stage | null>
   scale: number
@@ -58,12 +75,13 @@ interface Props {
 
 export default function Canvas({
   tool, color, strokeWidth, shapes, cursors, users, selectedIds,
-  setSelectedIds, addShape, commitBatch, onStartText, onEditText,
+  setSelectedIds, addShape, commitBatch, removeShapes,
   onCursorMove, stageRef, scale, pos, setScale, setPos, readOnly = false,
 }: Props) {
   const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight - TOP_OFFSET })
   const [draft, setDraft] = useState<Shape | null>(null)
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const [editor, setEditor] = useState<EditorState | null>(null)
   const drawing = useRef(false)
   const lastCursor = useRef(0)
   const trRef = useRef<Konva.Transformer | null>(null)
@@ -96,6 +114,48 @@ export default function Canvas({
   function pointer(): { x: number; y: number } {
     const p = stageRef.current?.getRelativePointerPosition()
     return p ?? { x: 0, y: 0 }
+  }
+
+  // ---- in-place text editing (Konva overlay) ----
+  // Open on the next frame so the click that placed the editor finishes first —
+  // otherwise that same click blurs the freshly-focused textarea and onBlur
+  // commits an empty value, closing it before you can type.
+  const openEditor = (next: EditorState) => requestAnimationFrame(() => setEditor(next))
+
+  function startTextCreate() {
+    const { x, y } = pointer()
+    openEditor({
+      id: null, type: 'text', worldX: x, worldY: y, rotation: 0,
+      baseFontSize: 22, basePadding: 2, color, value: '',
+    })
+  }
+
+  function startEdit(s: Shape) {
+    const shared = { id: s.id, worldX: s.x ?? 0, worldY: s.y ?? 0, rotation: s.rotation ?? 0, value: s.text ?? '' }
+    if (s.type === 'sticky') {
+      openEditor({
+        ...shared, type: 'sticky',
+        baseWidth: s.width ?? 160, baseHeight: s.height ?? 120,
+        baseFontSize: 16, basePadding: 12, color: '#1f2937', background: s.fill ?? '#fde68a',
+      })
+    } else {
+      openEditor({ ...shared, type: 'text', baseFontSize: s.fontSize ?? 22, basePadding: 2, color: s.fill ?? s.stroke })
+    }
+  }
+
+  function commitEditor() {
+    if (!editor) return
+    const val = editor.value.trim()
+    if (editor.id) {
+      const before = shapes.find((x) => x.id === editor.id)
+      if (before) {
+        if (val) commitBatch([{ before, after: { ...before, text: val } }])
+        else removeShapes([before.id])
+      }
+    } else if (val) {
+      addShape({ id: uid(), type: 'text', stroke: editor.color, strokeWidth: 1, x: editor.worldX, y: editor.worldY, text: val, fontSize: 22, fill: editor.color })
+    }
+    setEditor(null)
   }
 
   function handleWheel(e: Konva.KonvaEventObject<WheelEvent>) {
@@ -135,7 +195,7 @@ export default function Canvas({
     if (tool === 'pen') { setDraft({ ...base, type: 'pen', points: [x, y] }); drawing.current = true }
     else if (tool === 'arrow') { setDraft({ ...base, type: 'arrow', points: [x, y, x, y] }); drawing.current = true }
     else if (tool === 'rect' || tool === 'ellipse') { setDraft({ ...base, type: tool, x, y, width: 0, height: 0 }); drawing.current = true }
-    else if (tool === 'text') { onStartText(x, y) }
+    else if (tool === 'text') { startTextCreate() }
     else if (tool === 'sticky') { addShape({ ...base, type: 'sticky', x: x - 80, y: y - 60, width: 160, height: 120, text: 'Note', fill: '#fde68a', stroke: '#00000000' }) }
   }
 
@@ -270,7 +330,7 @@ export default function Canvas({
         if (!selectable) return
         setSelectedIds(e.evt.shiftKey ? toggle(selectedIds, s.id) : [s.id])
       },
-      onDblClick: () => (s.type === 'text' || s.type === 'sticky') && onEditText(s),
+      onDblClick: () => { if (!readOnly && (s.type === 'text' || s.type === 'sticky')) startEdit(s) },
       onDragStart: () => onDragStartShape(s),
       onDragMove: (e: Konva.KonvaEventObject<DragEvent>) => onDragMoveShape(s, e),
       onDragEnd: () => onDragEndShape(s),
@@ -304,7 +364,12 @@ export default function Canvas({
     }
   }
 
+  const editorScreen = editor
+    ? { left: pos.x + editor.worldX * scale, top: pos.y + editor.worldY * scale }
+    : null
+
   return (
+    <>
     <Stage
       ref={stageRef}
       width={size.w} height={size.h}
@@ -345,5 +410,37 @@ export default function Canvas({
         })}
       </Layer>
     </Stage>
+
+    {editor && editorScreen && (
+      <textarea
+        autoFocus
+        value={editor.value}
+        onChange={(e) => setEditor({ ...editor, value: e.target.value })}
+        onBlur={commitEditor}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitEditor() }
+          else if (e.key === 'Escape') setEditor(null)
+        }}
+        className={
+          editor.type === 'sticky'
+            ? 'absolute z-10 rounded-md outline-none resize-none shadow-lg leading-snug'
+            : 'absolute z-10 bg-white/95 border-2 border-indigo-500 rounded px-1 outline-none resize-none shadow'
+        }
+        style={{
+          left: editorScreen.left,
+          top: editorScreen.top,
+          width: editor.baseWidth ? editor.baseWidth * scale : undefined,
+          height: editor.baseHeight ? editor.baseHeight * scale : undefined,
+          minWidth: editor.type === 'text' ? 120 : undefined,
+          fontSize: editor.baseFontSize * scale,
+          padding: editor.basePadding * scale,
+          color: editor.color,
+          background: editor.background,
+          transform: editor.rotation ? `rotate(${editor.rotation}deg)` : undefined,
+          transformOrigin: 'top left',
+        }}
+      />
+    )}
+    </>
   )
 }
