@@ -49,6 +49,10 @@ interface EditorState {
   baseHeight?: number
   color: string
   background?: string
+  // Copied from the shape's own Konva text node so the overlay matches exactly.
+  fontFamily: string
+  lineHeight: number
+  align: 'left' | 'center' | 'right'
   value: string
 }
 
@@ -101,7 +105,7 @@ export default function Canvas({
     const tr = trRef.current
     const stage = stageRef.current
     if (!tr || !stage) return
-    if (tool === 'select' && selectedIds.length === 1) {
+    if (tool === 'select' && selectedIds.length === 1 && !editor) {
       const s = shapes.find((x) => x.id === selectedIds[0])
       if (s && s.type !== 'pen' && s.type !== 'arrow') {
         const node = stage.findOne('#' + s.id)
@@ -109,7 +113,7 @@ export default function Canvas({
       }
     }
     tr.nodes([])
-  }, [selectedIds, tool, shapes, stageRef])
+  }, [selectedIds, tool, shapes, stageRef, editor])
 
   function pointer(): { x: number; y: number } {
     const p = stageRef.current?.getRelativePointerPosition()
@@ -122,16 +126,33 @@ export default function Canvas({
   // commits an empty value, closing it before you can type.
   const openEditor = (next: EditorState) => requestAnimationFrame(() => setEditor(next))
 
+  // The Konva Text default font — new text uses it, and edits read the real
+  // value off the node so the overlay matches whatever the shape renders with.
+  const DEFAULT_FONT = 'Arial'
+
   function startTextCreate() {
     const { x, y } = pointer()
     openEditor({
       id: null, type: 'text', worldX: x, worldY: y, rotation: 0,
-      baseFontSize: 22, basePadding: 2, color, value: '',
+      baseFontSize: 22, basePadding: 0, color, value: '',
+      fontFamily: DEFAULT_FONT, lineHeight: 1, align: 'left',
     })
   }
 
   function startEdit(s: Shape) {
-    const shared = { id: s.id, worldX: s.x ?? 0, worldY: s.y ?? 0, rotation: s.rotation ?? 0, value: s.text ?? '' }
+    // Read the exact text metrics from the shape's own Konva node.
+    const node = stageRef.current?.findOne('#' + s.id)
+    const raw = s.type === 'sticky' ? (node as Konva.Container | undefined)?.findOne('Text') : node
+    const textNode = raw as
+      | { fontFamily(): string; lineHeight(): number; align(): string }
+      | undefined
+    const fontFamily = textNode?.fontFamily() ?? DEFAULT_FONT
+    const lineHeight = textNode?.lineHeight() ?? 1
+    const align = (textNode?.align() ?? 'left') as 'left' | 'center' | 'right'
+    const shared = {
+      id: s.id, worldX: s.x ?? 0, worldY: s.y ?? 0, rotation: s.rotation ?? 0,
+      value: s.text ?? '', fontFamily, lineHeight, align,
+    }
     if (s.type === 'sticky') {
       openEditor({
         ...shared, type: 'sticky',
@@ -139,7 +160,7 @@ export default function Canvas({
         baseFontSize: 16, basePadding: 12, color: '#1f2937', background: s.fill ?? '#fde68a',
       })
     } else {
-      openEditor({ ...shared, type: 'text', baseFontSize: s.fontSize ?? 22, basePadding: 2, color: s.fill ?? s.stroke })
+      openEditor({ ...shared, type: 'text', baseFontSize: s.fontSize ?? 22, basePadding: 0, color: s.fill ?? s.stroke })
     }
   }
 
@@ -325,6 +346,9 @@ export default function Canvas({
     const common = {
       id: s.id,
       rotation: s.rotation,
+      // Hide the shape while its text is being edited — the overlay stands in
+      // for it, so you're effectively editing the shape itself in place.
+      visible: !(editor?.id === s.id),
       draggable: selectable && !isDraft,
       onClick: (e: Konva.KonvaEventObject<MouseEvent>) => {
         if (!selectable) return
@@ -423,21 +447,29 @@ export default function Canvas({
         }}
         className={
           editor.type === 'sticky'
-            ? 'absolute z-10 rounded-md outline-none resize-none shadow-lg leading-snug'
-            : 'absolute z-10 bg-white/95 border-2 border-indigo-500 rounded px-1 outline-none resize-none shadow'
+            ? 'absolute z-10 rounded-md resize-none shadow-lg'
+            : 'absolute z-10 resize-none'
         }
         style={{
           left: editorScreen.left,
           top: editorScreen.top,
           width: editor.baseWidth ? editor.baseWidth * scale : undefined,
           height: editor.baseHeight ? editor.baseHeight * scale : undefined,
-          minWidth: editor.type === 'text' ? 120 : undefined,
+          // Mirror the shape's own text metrics so the overlay lines up exactly.
           fontSize: editor.baseFontSize * scale,
+          fontFamily: editor.fontFamily,
+          lineHeight: editor.lineHeight,
+          textAlign: editor.align,
           padding: editor.basePadding * scale,
           color: editor.color,
-          background: editor.background,
+          background: editor.type === 'sticky' ? editor.background : 'transparent',
           transform: editor.rotation ? `rotate(${editor.rotation}deg)` : undefined,
           transformOrigin: 'top left',
+          boxSizing: 'border-box',
+          border: 'none',
+          outline: 'none',
+          overflow: 'hidden',
+          margin: 0,
         }}
       />
     )}
