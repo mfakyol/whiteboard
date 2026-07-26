@@ -7,6 +7,8 @@ left off.
 
 **Live demo:** [draw.fatihakyol.com](https://draw.fatihakyol.com)
 
+![whiteboard screenshot](assets/screenshot.png)
+
 ## Features
 
 **Canvas & drawing**
